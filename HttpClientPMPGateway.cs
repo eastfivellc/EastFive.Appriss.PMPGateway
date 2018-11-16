@@ -113,13 +113,12 @@ namespace EastFive.Appriss.PMPGateway
             Func<string, TResult> onFailure)
         {
             return await PostAsync(username, password, new Uri(baseUri, $"/{apiVersion}/patient"), CreatePatientRequestXML(provider, patient),
+                //onSuccess
                 (content) =>
                 {
-                    var xml = new XDocument();
                     try
                     {
-                        xml = XDocument.Parse(content);
-
+                        var xml = XDocument.Parse(content);
                         var disallowedNode = xml.Descendants().Where(x => x.Name.LocalName == "Disallowed").FirstOrDefault();
                         if (null != disallowedNode)
                         {
@@ -135,14 +134,33 @@ namespace EastFive.Appriss.PMPGateway
                             var details = errorNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
                             return onPMPError($"{message.Value} - {details.Value}");
                         }
+                        return onSuccess(xml);
                     }
                     catch (Exception ex)
                     {
                         return onFailure($"Could not parse XML content from PMP Gateway - {ex.Message}");
                     }
-                    return onSuccess(xml);
                 },
-                onBadRequest,
+                // onBadRequest
+                (content) =>
+                {
+                    try
+                    {
+                        var xml = XDocument.Parse(content);
+                        var errorNode = xml.Descendants().Where(x => x.Name.LocalName == "Error").FirstOrDefault();
+                        if (null != errorNode)
+                        {
+                            var message = errorNode.Descendants().Where(x => x.Name.LocalName == "Message").FirstOrDefault();
+                            var details = errorNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
+                            return onBadRequest($"{message.Value} - {details.Value}");
+                        }
+                        return onBadRequest(content);
+                    }
+                    catch (Exception ex)
+                    {
+                        return onFailure($"Could not parse XML content from PMP Gateway - {ex.Message}");
+                    }
+                },
                 onUnauthorized,
                 onNotFound,
                 onInternalServerError,
