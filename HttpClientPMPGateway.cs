@@ -113,7 +113,6 @@ namespace EastFive.Appriss.PMPGateway
             Func<string, TResult> onFailure)
         {
             return await PostAsync(username, password, new Uri(baseUri, $"/{apiVersion}/patient"), CreatePatientRequestXML(provider, patient),
-                //onSuccess
                 (content) =>
                 {
                     try
@@ -127,13 +126,15 @@ namespace EastFive.Appriss.PMPGateway
                             return onCouldNotIdentifyUniquePatient($"{message.Value} - {details.Value}");
                         }
 
-                        var errorNode = xml.Descendants().Where(x => x.Name.LocalName == "Error").FirstOrDefault();
-                        if (null != errorNode)
-                        {
-                            var message = errorNode.Descendants().Where(x => x.Name.LocalName == "Message").FirstOrDefault();
-                            var details = errorNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
-                            return onPMPError($"{message.Value} - {details.Value}");
-                        }
+                        //03/09/2019, KDH.  Defer error handling to caller as the response might include errors as well as reports from other states
+                        //in this case, let the caller decide if they want to go with the reports they have or bail.
+                        //var errorNode = xml.Descendants().Where(x => x.Name.LocalName == "Error").FirstOrDefault();
+                        //if (null != errorNode)
+                        //{
+                        //    var message = errorNode.Descendants().Where(x => x.Name.LocalName == "Message").FirstOrDefault();
+                        //    var details = errorNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
+                        //    return onPMPError($"{message.Value} - {details.Value}");
+                        //}
                         return onSuccess(xml);
                     }
                     catch (Exception ex)
@@ -244,9 +245,21 @@ namespace EastFive.Appriss.PMPGateway
                 async (xmlDocument) =>
                 {
                     var reportLinkNode = xmlDocument.Descendants().Where(x => x.Name.LocalName == "ViewableReport").FirstOrDefault();
+
+                    //03/09/2019, KDH.  If we don't get a report node, check for an error node from the report.  Otherwise, general failure.
                     if (null == reportLinkNode)
+                    {
+                        var errorNode = xmlDocument.Descendants().Where(x => x.Name.LocalName == "Error").FirstOrDefault();
+                        if (null != errorNode)
+                        {
+                            var message = errorNode.Descendants().Where(x => x.Name.LocalName == "Message").FirstOrDefault();
+                            var details = errorNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
+                            return onPMPError($"{message.Value} - {details.Value}");
+                        }
+
                         return onFailure("Could not find ViewableReport node in patient XML");
-                    
+                    }
+
                     return await PostReportAsync(username, password, provider, reportLinkNode.Value,
                         (htmlDocument) =>
                         {
