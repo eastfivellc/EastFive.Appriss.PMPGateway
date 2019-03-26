@@ -34,7 +34,8 @@ namespace EastFive.Appriss.PMPGateway
             public string lastname;
             public string dob;
             public string gender;
-            public string street;
+            public string street1;
+            public string street2;
             public string city;
             public string state;
             public string zip;
@@ -48,7 +49,7 @@ namespace EastFive.Appriss.PMPGateway
                 }
                 set
                 {
-                    internalPhone = value.Replace("-", "");
+                    internalPhone = value.HasBlackSpace() ? value.Replace("-", "") : value;
                 }
             }
         }
@@ -362,8 +363,13 @@ namespace EastFive.Appriss.PMPGateway
             //        <Last>Testpatient</Last>
             //      </Name>
             //      <Birthdate>1900-01-01</Birthdate>
+            //      <SexCode>M</SexCode>
             //      <!-- ZipCode or Phone is required. -->
             //      <Address>
+            //        <Street></Street>
+            //        <Street></Street>
+            //        <City></City>
+            //        <StateCode>IN</StateCode>
             //        <ZipCode>67203</ZipCode>
             //      </Address>
             //      <Phone>1234567890</Phone>
@@ -390,12 +396,26 @@ namespace EastFive.Appriss.PMPGateway
                                 new XElement("First", patient.firstname),
                                 new XElement("Last", patient.lastname)),
                             new XElement("Birthdate", patient.dob),
+                            new XElement("SexCode", patient.gender),
                             new XElement("Address",
+                                new XElement("Street", patient.street1),
+                                new XElement("Street", patient.street2),
+                                new XElement("City", patient.city),
+                                //,new XElement("StateCode", patient.state),
                                 new XElement("ZipCode", patient.zip))
-                            //new XElement("Phone", patient.phone)
+                            //,new XElement("Phone", patient.phone)
                                 ))));
 
-            if (!string.IsNullOrWhiteSpace(patient.phone))
+            // These enumeration elements cannot be empty so add them later if filled in
+            if (patient.state.HasBlackSpace())
+            {
+                var cityNode = doc.Descendants().Where(x => x.Name.LocalName == "City").FirstOrDefault();
+                if (null != cityNode)
+                {
+                    cityNode.AddAfterSelf(new XElement("StateCode", patient.state));
+                }
+            }
+            if (patient.phone.HasBlackSpace())
             {
                 var patientNode = doc.Descendants().Where(x => x.Name.LocalName == "Patient").FirstOrDefault();
                 if (null != patientNode)
