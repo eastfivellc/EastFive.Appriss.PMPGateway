@@ -295,7 +295,7 @@ namespace EastFive.Appriss.PMPGateway
             WebRequestHandler requestHandler = new WebRequestHandler();
             requestHandler.ClientCertificates.Add(cer);
 
-            using (var httpClient = new HttpClient(requestHandler)
+            using (var httpClient = new HttpClient(requestHandler, true)
             {
                 Timeout = new TimeSpan(0, 5, 0),
             })
