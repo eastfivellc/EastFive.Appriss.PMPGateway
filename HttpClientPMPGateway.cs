@@ -18,12 +18,12 @@ namespace EastFive.Appriss.PMPGateway
     /// convenience function that combines the patient and report POSTs into a single call.
     /// The class allows for the patient and report POSTs to be called individually, as well.
     /// </summary>
-    public class HttpClientPMPGateway
+    public class HttpClientPMPGateway : IDisposable
     {
         private readonly Uri baseUri = default(Uri);
         private readonly string apiVersion = string.Empty;
-        private readonly string certificate;
-        private readonly string certificatePassword;
+
+        private Lazy<HttpClient> client;
 
         /// <summary>
         /// Class to hold patient info to send to request
@@ -77,12 +77,54 @@ namespace EastFive.Appriss.PMPGateway
         /// <param name="apiVersion">Set this to v5 or another API version number</param>
         /// <param name="certificate">Certificate as a Base 64 encoded string</param>
         /// <param name="certificatePassword">The password for the pfx certificate</param>
-        public HttpClientPMPGateway(Uri baseUri, string apiVersion, string certificate, string certificatePassword)
+        public HttpClientPMPGateway(string username, string password, Uri baseUri, string apiVersion, string certificate, string certificatePassword)
         {
             this.baseUri = baseUri;
             this.apiVersion = apiVersion;
-            this.certificatePassword = certificatePassword;
-            this.certificate = certificate;
+
+            this.client = new Lazy<HttpClient>(
+                () =>
+                {
+                    byte[] certificateBytes = Convert.FromBase64String(certificate);
+                    X509Certificate2 cer = new X509Certificate2(certificateBytes, certificatePassword, X509KeyStorageFlags.MachineKeySet);
+                    WebRequestHandler requestHandler = new WebRequestHandler();
+                    requestHandler.ClientCertificates.Add(cer);
+                    var client = new HttpClient(requestHandler, true)
+                    {
+                        Timeout = new TimeSpan(0, 5, 0),
+                    };
+                    var credentials = Encoding.ASCII.GetBytes($"{username}:{password}");
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(credentials));
+                    client.DefaultRequestHeaders.Add("Accept", "application/xml");
+                    return client;
+                });
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (client != null)
+                {
+                    if (client.IsValueCreated)
+                    {
+                        client.Value.CancelPendingRequests();
+                        client.Value.Dispose();
+                    }
+                    client = null;
+                }
+            }
+        }
+
+        ~HttpClientPMPGateway()
+        {
+            Dispose(false);
         }
 
         /// <summary>
@@ -103,7 +145,7 @@ namespace EastFive.Appriss.PMPGateway
         /// <param name="onPMPError"></param>
         /// <param name="onFailure"></param>
         /// <returns></returns>
-        public async Task<TResult> PostPatientAsync<TResult>(string username, string password, Provider provider, Patient patient,
+        public async Task<TResult> PostPatientAsync<TResult>(Provider provider, Patient patient,
             Func<XDocument, TResult> onSuccess,
             Func<string, TResult> onBadRequest,
             Func<string, TResult> onUnauthorized,
@@ -113,7 +155,7 @@ namespace EastFive.Appriss.PMPGateway
             Func<string, TResult> onPMPError,
             Func<string, TResult> onFailure)
         {
-            return await PostAsync(username, password, new Uri(baseUri, $"/{apiVersion}/patient"), CreatePatientRequestXML(provider, patient),
+            return await PostAsync(new Uri(baseUri, $"/{apiVersion}/patient"), CreatePatientRequestXML(provider, patient),
                 (content) =>
                 {
                     try
@@ -185,7 +227,7 @@ namespace EastFive.Appriss.PMPGateway
         /// <param name="onInternalServerError"></param>
         /// <param name="onFailure"></param>
         /// <returns></returns>
-        public async Task<TResult> PostReportAsync<TResult>(string username, string password, Provider provider, string reportLink,
+        public async Task<TResult> PostReportAsync<TResult>(Provider provider, string reportLink,
             Func<HtmlAgilityPack.HtmlDocument, TResult> onSuccess,
             Func<string, TResult> onBadRequest,
             Func<string, TResult> onUnauthorized,
@@ -193,7 +235,7 @@ namespace EastFive.Appriss.PMPGateway
             Func<string, TResult> onInternalServerError,
             Func<string, TResult> onFailure)
         {
-            return await PostAsync(username, password, new Uri(reportLink), CreateReportRequestXML(provider),
+            return await PostAsync(new Uri(reportLink), CreateReportRequestXML(provider),
                 (content) =>
                 {
                     var htmlDocument = new HtmlAgilityPack.HtmlDocument();
@@ -232,7 +274,7 @@ namespace EastFive.Appriss.PMPGateway
         /// <param name="onPMPError"></param>
         /// <param name="onFailure"></param>
         /// <returns></returns>
-        public async Task<TResult> PostPatientReportAsync<TResult>(string username, string password, Provider provider, Patient patient,
+        public async Task<TResult> PostPatientReportAsync<TResult>(Provider provider, Patient patient,
             Func<HtmlAgilityPack.HtmlDocument, TResult> onSuccess,
             Func<string, TResult> onBadRequest,
             Func<string, TResult> onUnauthorized,
@@ -242,7 +284,7 @@ namespace EastFive.Appriss.PMPGateway
             Func<string, TResult> onPMPError,
             Func<string, TResult> onFailure)
         {
-            return await await PostPatientAsync(username, password, provider, patient,
+            return await await PostPatientAsync(provider, patient,
                 async (xmlDocument) =>
                 {
                     var reportLinkNode = xmlDocument.Descendants().Where(x => x.Name.LocalName == "ViewableReport").FirstOrDefault();
@@ -261,7 +303,7 @@ namespace EastFive.Appriss.PMPGateway
                         return onFailure("Could not find ViewableReport node in patient XML");
                     }
 
-                    return await PostReportAsync(username, password, provider, reportLinkNode.Value,
+                    return await PostReportAsync(provider, reportLinkNode.Value,
                         (htmlDocument) =>
                         {
                             return onSuccess(htmlDocument);
@@ -282,7 +324,7 @@ namespace EastFive.Appriss.PMPGateway
         }
 
         #region Supporting Routines
-        private async Task<TResult> PostAsync<TResult>(string username, string password, Uri uri, string xmlContent,
+        private async Task<TResult> PostAsync<TResult>(Uri uri, string xmlContent,
             Func<string, TResult> onSuccess,
             Func<string, TResult> onBadRequest,
             Func<string, TResult> onUnauthorized,
@@ -290,50 +332,35 @@ namespace EastFive.Appriss.PMPGateway
             Func<string, TResult> onInternalServerError,
             Func<string, TResult> onFailure)
         {
-            byte[] certificateBytes = Convert.FromBase64String(certificate);
-            X509Certificate2 cer = new X509Certificate2(certificateBytes, certificatePassword, X509KeyStorageFlags.MachineKeySet);
-            WebRequestHandler requestHandler = new WebRequestHandler();
-            requestHandler.ClientCertificates.Add(cer);
+            var request = new HttpRequestMessage(
+                new HttpMethod("POST"),
+                uri);
 
-            using (var httpClient = new HttpClient(requestHandler, true)
+            var finalContentString = new StringContent(xmlContent, Encoding.UTF8, "application/x-www-form-urlencoded");
+            request.Content = finalContentString;
+
+            var response = await this.client.Value.SendAsync(request);
+            var content = await response.Content.ReadAsStringAsync();
+            switch(response.StatusCode)
             {
-                Timeout = new TimeSpan(0, 5, 0),
-            })
-            {
-                var credentials = Encoding.ASCII.GetBytes($"{username}:{password}");
-                httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(credentials));
+                case HttpStatusCode.OK:
+                    return onSuccess(content);
 
-                httpClient.DefaultRequestHeaders.Add("Accept", "application/xml");
-                var request = new HttpRequestMessage(
-                    new HttpMethod("POST"),
-                    uri);
+                case HttpStatusCode.BadRequest:
+                    return onBadRequest(content);
 
-                var finalContentString = new StringContent(xmlContent, Encoding.UTF8, "application/x-www-form-urlencoded");
-                request.Content = finalContentString;
+                case HttpStatusCode.Unauthorized:
+                    var asdf = response.GetType();
+                    return onUnauthorized(content);
 
-                var response = await httpClient.SendAsync(request);
-                var content = await response.Content.ReadAsStringAsync();
-                switch(response.StatusCode)
-                {
-                    case HttpStatusCode.OK:
-                        return onSuccess(content);
+                case HttpStatusCode.NotFound:
+                    return onNotFound(content);
 
-                    case HttpStatusCode.BadRequest:
-                        return onBadRequest(content);
+                case HttpStatusCode.InternalServerError:
+                    return onInternalServerError(content);
 
-                    case HttpStatusCode.Unauthorized:
-                        var asdf = response.GetType();
-                        return onUnauthorized(content);
-
-                    case HttpStatusCode.NotFound:
-                        return onNotFound(content);
-
-                    case HttpStatusCode.InternalServerError:
-                        return onInternalServerError(content);
-
-                    default:
-                        return onFailure($"{response.ReasonPhrase} - {content}");
-                }
+                default:
+                    return onFailure($"{response.ReasonPhrase} - {content}");
             }
         }
 
