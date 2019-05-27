@@ -20,10 +20,11 @@ namespace EastFive.Appriss.PMPGateway
     /// </summary>
     public class HttpClientPMPGateway : IDisposable
     {
-        private readonly Uri baseUri = default(Uri);
-        private readonly string apiVersion = string.Empty;
+        private readonly Uri baseUri;
+        private readonly string apiVersion;
+        private readonly AuthenticationHeaderValue authenticationHeaderValue;
 
-        private Lazy<HttpClient> client;
+        private Lazy<HttpMessageHandler> handler;
 
         /// <summary>
         /// Class to hold patient info to send to request
@@ -82,22 +83,28 @@ namespace EastFive.Appriss.PMPGateway
             this.baseUri = baseUri;
             this.apiVersion = apiVersion;
 
-            this.client = new Lazy<HttpClient>(
+            this.handler = new Lazy<HttpMessageHandler>(
                 () =>
                 {
                     byte[] certificateBytes = Convert.FromBase64String(certificate);
                     X509Certificate2 cer = new X509Certificate2(certificateBytes, certificatePassword, X509KeyStorageFlags.MachineKeySet);
-                    WebRequestHandler requestHandler = new WebRequestHandler();
-                    requestHandler.ClientCertificates.Add(cer);
-                    var client = new HttpClient(requestHandler, true)
-                    {
-                        Timeout = new TimeSpan(0, 5, 0),
-                    };
-                    var credentials = Encoding.ASCII.GetBytes($"{username}:{password}");
-                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(credentials));
-                    client.DefaultRequestHeaders.Add("Accept", "application/xml");
-                    return client;
+                    WebRequestHandler handler = new WebRequestHandler();
+                    handler.ClientCertificates.Add(cer);
+                    return handler;
                 });
+            var credentials = Encoding.ASCII.GetBytes($"{username}:{password}");
+            this.authenticationHeaderValue = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(credentials));
+        }
+
+        private HttpClient GetClient()
+        {
+            var client = new HttpClient(this.handler.Value, false)
+            {
+                Timeout = new TimeSpan(0, 5, 0),
+            };
+            client.DefaultRequestHeaders.Authorization = authenticationHeaderValue;
+            client.DefaultRequestHeaders.Add("Accept", "application/xml");
+            return client;
         }
 
         public void Dispose()
@@ -110,14 +117,13 @@ namespace EastFive.Appriss.PMPGateway
         {
             if (disposing)
             {
-                if (client != null)
+                if (handler != null)
                 {
-                    if (client.IsValueCreated)
+                    if (handler.IsValueCreated)
                     {
-                        client.Value.CancelPendingRequests();
-                        client.Value.Dispose();
+                        handler.Value.Dispose();
                     }
-                    client = null;
+                    handler = null;
                 }
             }
         }
@@ -324,6 +330,7 @@ namespace EastFive.Appriss.PMPGateway
         }
 
         #region Supporting Routines
+
         private async Task<TResult> PostAsync<TResult>(Uri uri, string xmlContent,
             Func<string, TResult> onSuccess,
             Func<string, TResult> onBadRequest,
@@ -339,9 +346,19 @@ namespace EastFive.Appriss.PMPGateway
             var finalContentString = new StringContent(xmlContent, Encoding.UTF8, "application/x-www-form-urlencoded");
             request.Content = finalContentString;
 
-            var response = await this.client.Value.SendAsync(request);
-            var content = await response.Content.ReadAsStringAsync();
-            switch(response.StatusCode)
+            string content;
+            HttpStatusCode statusCode;
+            string reasonPhrase;
+
+            using (var client = GetClient())
+            using (var response = await client.SendAsync(request))
+            {
+                content = await response.Content.ReadAsStringAsync();
+                statusCode = response.StatusCode;
+                reasonPhrase = response.ReasonPhrase;
+            }
+
+            switch (statusCode)
             {
                 case HttpStatusCode.OK:
                     return onSuccess(content);
@@ -350,7 +367,6 @@ namespace EastFive.Appriss.PMPGateway
                     return onBadRequest(content);
 
                 case HttpStatusCode.Unauthorized:
-                    var asdf = response.GetType();
                     return onUnauthorized(content);
 
                 case HttpStatusCode.NotFound:
@@ -360,7 +376,7 @@ namespace EastFive.Appriss.PMPGateway
                     return onInternalServerError(content);
 
                 default:
-                    return onFailure($"{response.ReasonPhrase} - {content}");
+                    return onFailure($"{reasonPhrase} - {content}");
             }
         }
 
