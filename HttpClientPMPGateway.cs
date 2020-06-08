@@ -161,6 +161,20 @@ namespace EastFive.Appriss.PMPGateway
             Func<string, TResult> onPMPError,
             Func<string, TResult> onFailure)
         {
+            string getError(XElement message, XElement details)
+            {
+                var messageStr = message != null ? message.Value : string.Empty;
+                var detailStr = details != null ? details.Value : string.Empty;
+
+                var error = messageStr;
+                if (detailStr.HasBlackSpace() && !detailStr.StartsWith("Details of error can be"))
+                    error += $" - {detailStr}";
+                if (messageStr.Contains("not allowed to make requests"))
+                    error += " If this is unexpected, you can go to Settings and change your Role.  We'll retry the request.";
+
+                return error;
+            }
+
             return await PostAsync(new Uri(baseUri, $"/{apiVersion}/patient"), CreatePatientRequestXML(provider, patient),
                 (content) =>
                 {
@@ -172,7 +186,7 @@ namespace EastFive.Appriss.PMPGateway
                         {
                             var message = disallowedNode.Descendants().Where(x => x.Name.LocalName == "Message").FirstOrDefault();
                             var details = disallowedNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
-                            return onCouldNotIdentifyUniquePatient($"{message.Value} - {details.Value}");
+                            return onCouldNotIdentifyUniquePatient(getError(message, details));
                         }
 
                         //03/09/2019, KDH.  Defer error handling to caller as the response might include errors as well as reports from other states
@@ -202,7 +216,7 @@ namespace EastFive.Appriss.PMPGateway
                         {
                             var message = errorNode.Descendants().Where(x => x.Name.LocalName == "Message").FirstOrDefault();
                             var details = errorNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
-                            return onBadRequest($"{message.Value} - {details.Value}");
+                            return onBadRequest(getError(message, details));
                         }
                         return onBadRequest(content);
                     }
