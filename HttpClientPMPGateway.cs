@@ -8,6 +8,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml;
 using System.Xml.Linq;
 
 namespace EastFive.Appriss.PMPGateway
@@ -180,25 +181,35 @@ namespace EastFive.Appriss.PMPGateway
                 {
                     try
                     {
-                        var xml = XDocument.Parse(content);
-                        var disallowedNode = xml.Descendants().Where(x => x.Name.LocalName == "Disallowed").FirstOrDefault();
-                        if (null != disallowedNode)
+                        var settings = new XmlReaderSettings
                         {
-                            var message = disallowedNode.Descendants().Where(x => x.Name.LocalName == "Message").FirstOrDefault();
-                            var details = disallowedNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
-                            return onCouldNotIdentifyUniquePatient(getError(message, details));
-                        }
+                            DtdProcessing = DtdProcessing.Ignore, // prevents XXE attacks, such as Billion Laughs
+                            MaxCharactersFromEntities = 1024,
+                            XmlResolver = null,                   // prevents external entity DoS attacks, such as slow loading links or large file requests
+                        };
+                        using (var strReader = new StringReader(content))
+                        using (var xmlReader = XmlReader.Create(strReader, settings))
+                        {
+                            var xml = XDocument.Load(xmlReader);
+                            var disallowedNode = xml.Descendants().Where(x => x.Name.LocalName == "Disallowed").FirstOrDefault();
+                            if (null != disallowedNode)
+                            {
+                                var message = disallowedNode.Descendants().Where(x => x.Name.LocalName == "Message").FirstOrDefault();
+                                var details = disallowedNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
+                                return onCouldNotIdentifyUniquePatient(getError(message, details));
+                            }
 
-                        //03/09/2019, KDH.  Defer error handling to caller as the response might include errors as well as reports from other states
-                        //in this case, let the caller decide if they want to go with the reports they have or bail.
-                        //var errorNode = xml.Descendants().Where(x => x.Name.LocalName == "Error").FirstOrDefault();
-                        //if (null != errorNode)
-                        //{
-                        //    var message = errorNode.Descendants().Where(x => x.Name.LocalName == "Message").FirstOrDefault();
-                        //    var details = errorNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
-                        //    return onPMPError($"{message.Value} - {details.Value}");
-                        //}
-                        return onSuccess(xml);
+                            //03/09/2019, KDH.  Defer error handling to caller as the response might include errors as well as reports from other states
+                            //in this case, let the caller decide if they want to go with the reports they have or bail.
+                            //var errorNode = xml.Descendants().Where(x => x.Name.LocalName == "Error").FirstOrDefault();
+                            //if (null != errorNode)
+                            //{
+                            //    var message = errorNode.Descendants().Where(x => x.Name.LocalName == "Message").FirstOrDefault();
+                            //    var details = errorNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
+                            //    return onPMPError($"{message.Value} - {details.Value}");
+                            //}
+                            return onSuccess(xml);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -210,15 +221,25 @@ namespace EastFive.Appriss.PMPGateway
                 {
                     try
                     {
-                        var xml = XDocument.Parse(content);
-                        var errorNode = xml.Descendants().Where(x => x.Name.LocalName == "Error").FirstOrDefault();
-                        if (null != errorNode)
+                        var settings = new XmlReaderSettings
                         {
-                            var message = errorNode.Descendants().Where(x => x.Name.LocalName == "Message").FirstOrDefault();
-                            var details = errorNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
-                            return onBadRequest(getError(message, details));
+                            DtdProcessing = DtdProcessing.Ignore, // prevents XXE attacks, such as Billion Laughs
+                            MaxCharactersFromEntities = 1024,
+                            XmlResolver = null,                   // prevents external entity DoS attacks, such as slow loading links or large file requests
+                        };
+                        using (var strReader = new StringReader(content))
+                        using (var xmlReader = XmlReader.Create(strReader, settings))
+                        {
+                            var xml = XDocument.Load(xmlReader);
+                            var errorNode = xml.Descendants().Where(x => x.Name.LocalName == "Error").FirstOrDefault();
+                            if (null != errorNode)
+                            {
+                                var message = errorNode.Descendants().Where(x => x.Name.LocalName == "Message").FirstOrDefault();
+                                var details = errorNode.Descendants().Where(x => x.Name.LocalName == "Details").FirstOrDefault();
+                                return onBadRequest(getError(message, details));
+                            }
+                            return onBadRequest(content);
                         }
-                        return onBadRequest(content);
                     }
                     catch (Exception ex)
                     {
