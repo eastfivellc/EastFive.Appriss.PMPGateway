@@ -89,7 +89,7 @@ namespace EastFive.Appriss.PMPGateway
                 {
                     byte[] certificateBytes = Convert.FromBase64String(certificate);
                     X509Certificate2 cer = new X509Certificate2(certificateBytes, certificatePassword, X509KeyStorageFlags.MachineKeySet);
-                    WebRequestHandler handler = new WebRequestHandler();
+                    var handler = new HttpClientHandler();
                     handler.ClientCertificates.Add(cer);
                     return handler;
                 });
