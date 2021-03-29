@@ -374,44 +374,46 @@ namespace EastFive.Appriss.PMPGateway
             Func<string, TResult> onInternalServerError,
             Func<string, TResult> onFailure)
         {
-            var request = new HttpRequestMessage(
+            using (var request = new HttpRequestMessage(
                 new HttpMethod("POST"),
-                uri);
-
-            var finalContentString = new StringContent(xmlContent, Encoding.UTF8, "application/x-www-form-urlencoded");
-            request.Content = finalContentString;
-
-            string content;
-            HttpStatusCode statusCode;
-            string reasonPhrase;
-
-            using (var client = GetClient())
-            using (var response = await client.SendAsync(request))
+                uri))
             {
-                content = await response.Content.ReadAsStringAsync();
-                statusCode = response.StatusCode;
-                reasonPhrase = response.ReasonPhrase;
-            }
 
-            switch (statusCode)
-            {
-                case HttpStatusCode.OK:
-                    return onSuccess(content);
+                var finalContentString = new StringContent(xmlContent, Encoding.UTF8, "application/x-www-form-urlencoded");
+                request.Content = finalContentString;
 
-                case HttpStatusCode.BadRequest:
-                    return onBadRequest(content);
+                string content;
+                HttpStatusCode statusCode;
+                string reasonPhrase;
 
-                case HttpStatusCode.Unauthorized:
-                    return onUnauthorized(content);
+                using (var client = GetClient())
+                using (var response = await client.SendAsync(request))
+                {
+                    content = await response.Content.ReadAsStringAsync();
+                    statusCode = response.StatusCode;
+                    reasonPhrase = response.ReasonPhrase;
+                }
 
-                case HttpStatusCode.NotFound:
-                    return onNotFound(content);
+                switch (statusCode)
+                {
+                    case HttpStatusCode.OK:
+                        return onSuccess(content);
 
-                case HttpStatusCode.InternalServerError:
-                    return onInternalServerError(content);
+                    case HttpStatusCode.BadRequest:
+                        return onBadRequest(content);
 
-                default:
-                    return onFailure($"{reasonPhrase} - {content}");
+                    case HttpStatusCode.Unauthorized:
+                        return onUnauthorized(content);
+
+                    case HttpStatusCode.NotFound:
+                        return onNotFound(content);
+
+                    case HttpStatusCode.InternalServerError:
+                        return onInternalServerError(content);
+
+                    default:
+                        return onFailure($"{reasonPhrase} - {content}");
+                }
             }
         }
 
