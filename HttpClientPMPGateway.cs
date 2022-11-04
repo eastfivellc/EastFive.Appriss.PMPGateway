@@ -1,4 +1,4 @@
-﻿using BlackBarLabs.Extensions;
+﻿using EastFive.Extensions;
 using System;
 using System.IO;
 using System.Linq;
@@ -355,13 +355,13 @@ namespace EastFive.Appriss.PMPGateway
                         onInternalServerError,
                         onFailure);
                 },
-                (why)=> onBadRequest(why).ToTask(),
-                (why) => onUnauthorized(why).ToTask(),
-                (why) => onNotFound(why).ToTask(),
-                (why) => onInternalServerError(why).ToTask(),
-                (why) => onCouldNotIdentifyUniquePatient(why).ToTask(),
-                (why) => onPMPError(why).ToTask(),
-                (why) => onFailure(why).ToTask());
+                (why)=> onBadRequest(why).AsTask(),
+                (why) => onUnauthorized(why).AsTask(),
+                (why) => onNotFound(why).AsTask(),
+                (why) => onInternalServerError(why).AsTask(),
+                (why) => onCouldNotIdentifyUniquePatient(why).AsTask(),
+                (why) => onPMPError(why).AsTask(),
+                (why) => onFailure(why).AsTask());
         }
 
         #region Supporting Routines
